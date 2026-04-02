@@ -4,7 +4,7 @@ import { EffectComposer } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examp
 import { RenderPass } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { EARTH_RADIUS, MOON_RADIUS, MOON_SMA, SCALE, SPACECRAFT_SCALE } from "./constants.js";
-import { moonPosition, toUnits } from "./physics.js";
+import { moonPosition } from "./physics.js";
 
 // ─── Constantes de rendu ───────────────────────────────────────
 const EU = EARTH_RADIUS / SCALE;   // 6.371  unités
@@ -302,9 +302,10 @@ export function createEarth() {
   earthGroup.add(clouds);
 
   // Atmosphère (shader de bord)
+  // sunDir référence le même objet Vector3 que la DirectionalLight → mise à jour auto
   const atmGeo = new THREE.SphereGeometry(EU * 1.04, 64, 32);
   const atmMat = new THREE.ShaderMaterial({
-    uniforms: { sunDir: { value: new THREE.Vector3(1, 0.2, 0).normalize() } },
+    uniforms: { sunDir: { value: sunLight.position.clone().normalize() } },
     vertexShader: `
       varying vec3 vNormal;
       varying vec3 vViewDir;
@@ -524,7 +525,7 @@ export function createTrajectoryLine(trajectoryPoints) {
 
 // ─── Mise à jour du vaisseau ──────────────────────────────────
 export function updateSpacecraft(state) {
-  const { x, y, z, phase, speed } = state;
+  const { x, y, z, vx, vy, vz, phase, speed } = state;
   const px = x / SCALE, py = y / SCALE, pz = z / SCALE;
 
   const launchPhases   = ["launch", "ascent", "stage_sep", "earth_orbit", "tli_burn"];
@@ -550,23 +551,32 @@ export function updateSpacecraft(state) {
   // Positionner
   if (slsGroup.visible) {
     slsGroup.position.set(px, py, pz);
-    // Orienter le SLS vers le haut lors du lancement (approximation)
-    if (phase === "launch" || phase === "prelaunch") {
-      slsGroup.lookAt(px * 1.01, py * 1.01, pz * 1.01);
-      slsGroup.rotateX(-Math.PI / 2);
-    }
+    // Orienter le SLS : axe +Y pointe dans la direction radiale (loin du centre Terre)
+    // On calcule le vecteur radial normalisé, puis on aligne l'axe Y dessus.
+    const rLen = Math.sqrt(px*px + py*py + pz*pz) || 1;
+    const upX  = px / rLen, upY = py / rLen, upZ = pz / rLen;
+    // lookAt oriente -Z vers la cible → pointer la "tête" vers le haut radial
+    // en utilisant la position + vecteur radial comme cible
+    slsGroup.up.set(0, 1, 0);
+    slsGroup.lookAt(px + upX, py + upY, pz + upZ);
+    slsGroup.rotateX(Math.PI / 2); // axe +Y du groupe vers la direction radiale
   }
   if (orionGroup.visible) {
     orionGroup.position.set(px, py, pz);
   }
 
-  // Particules moteur
+  // Particules moteur — direction anti-prograde du vaisseau
   const enginesOn = ["launch", "ascent", "tli_burn", "loi_burn",
                      "lunar_ascent", "transearth_coast"].includes(phase);
-  updateEngineParticles(enginesOn, px, py, pz, phase);
+  const vlen = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
+  // Direction anti-prograde normalisée en unités Three.js
+  const apx = -(vx / vlen) / SCALE * 100;
+  const apy = -(vy / vlen) / SCALE * 100;
+  const apz = -(vz / vlen) / SCALE * 100;
+  updateEngineParticles(enginesOn, px, py, pz, apx, apy, apz);
 }
 
-function updateEngineParticles(on, px, py, pz, phase) {
+function updateEngineParticles(on, px, py, pz, apx, apy, apz) {
   if (!engineParticles) return;
   engineParticles.visible = on;
   if (!on) return;
@@ -574,20 +584,20 @@ function updateEngineParticles(on, px, py, pz, phase) {
   const pos  = engineParticles.geometry.attributes.position;
   const col  = engineParticles.geometry.attributes.color;
   const N    = pos.count;
-  const size = 0.2;
+  const jitter = (amp) => (Math.random() - 0.5) * amp;
 
   for (let i = 0; i < N; i++) {
-    const t  = (i / N);
-    const jitter = () => (Math.random() - 0.5) * size;
-    const spread = t * 0.4;
-    pos.setXYZ(i, px + jitter() + spread*(Math.random()-0.5),
-                  py + jitter() - t * 0.6,
-                  pz + jitter() + spread*(Math.random()-0.5));
-    // Dégradé blanc→orange→rouge
-    const r = 1.0;
-    const g = t < 0.3 ? 1.0 : 1.0 - (t-0.3)*2.0;
-    const b = t < 0.1 ? 0.8 : 0.0;
-    col.setXYZ(i, r, Math.max(0,g), Math.max(0,b));
+    const frac = i / N;           // 0 (noyau) → 1 (queue)
+    const spread = frac * 0.15;   // panache qui s'élargit
+    pos.setXYZ(i,
+      px + apx * frac + jitter(spread),
+      py + apy * frac + jitter(spread),
+      pz + apz * frac + jitter(spread)
+    );
+    // Dégradé blanc→orange→rouge de la base vers la queue
+    const g = frac < 0.3 ? 1.0 : Math.max(0, 1.0 - (frac - 0.3) * 2.0);
+    const b = frac < 0.1 ? 0.8 : 0.0;
+    col.setXYZ(i, 1.0, g, Math.max(0, b));
   }
   pos.needsUpdate = true;
   col.needsUpdate = true;

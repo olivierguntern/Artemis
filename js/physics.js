@@ -17,16 +17,18 @@ const vscale = (a, s) => [a[0]*s, a[1]*s, a[2]*s, a[3]*s, a[4]*s, a[5]*s];
 const norm3 = (x,y,z) => Math.sqrt(x*x + y*y + z*z);
 
 // ── Position de la Lune à l'instant t (orbite quasi-circulaire) ─
-// Angle initial θ₀ calculé pour que la Lune soit au bon endroit
-// au moment de l'arrivée du vaisseau (~7 jours après T-0)
 const MOON_OMEGA = 2 * Math.PI / MOON_PERIOD;   // rad/s
 
-// Au moment du TLI (T+26h), on veut que le vaisseau parte vers (-X)
-// et que la Lune soit là-bas 5 jours plus tard.
-// Δt_transit ≈ 5,4 jours, Moon doit être à angle π à t = T_TLI + Δt
-// => θ₀ = π - MOON_OMEGA*(T.TLI_CUTOFF + 5.4*86400)
+// Calculer l'angle réel du TLI dans l'orbite de stationnement :
+//   theta_TLI = OM_PARK × (T_TLI - T_ORBIT_START)
+// Le vaisseau part de theta_TLI et arrive à theta_TLI+π (apoapsis Hohmann)
+// après TRANSIT_TIME secondes. La Lune doit être là à ce moment.
+// => MOON_THETA_0 = (theta_TLI + π) - MOON_OMEGA*(T_TLI + TRANSIT_TIME)
+const _R_PARK    = EARTH_RADIUS + 185e3;
+const _OM_PARK   = Math.sqrt(EARTH_MU / (_R_PARK * _R_PARK * _R_PARK)); // rad/s
+const _THETA_TLI = _OM_PARK * (T.TLI_CUTOFF - T.CORE_CUTOFF); // angle complet (cos/sin)
 const TRANSIT_TIME = 5.4 * 86400; // s ≈ durée trajet Terre→Lune
-const MOON_THETA_0 = Math.PI - MOON_OMEGA * (T.TLI_CUTOFF + TRANSIT_TIME);
+const MOON_THETA_0 = (_THETA_TLI + Math.PI) - MOON_OMEGA * (T.TLI_CUTOFF + TRANSIT_TIME);
 
 export function moonPosition(t) {
   const theta = MOON_THETA_0 + MOON_OMEGA * t;
@@ -37,28 +39,6 @@ export function moonPosition(t) {
   ];
 }
 
-// ── Accélération gravitationnelle (Terre + Lune) ─────────────
-function gravAccel(t, state) {
-  const [x, y, z] = state;
-  const rE = norm3(x, y, z);
-
-  // Gravité terrestre
-  const muE_r3 = EARTH_MU / (rE * rE * rE);
-  let ax = -muE_r3 * x;
-  let ay = -muE_r3 * y;
-  let az = -muE_r3 * z;
-
-  // Gravité lunaire
-  const [mx, my, mz] = moonPosition(t);
-  const dx = x - mx, dy = y - my, dz = z - mz;
-  const rM = norm3(dx, dy, dz);
-  const muM_r3 = MOON_MU / (rM * rM * rM);
-  ax -= muM_r3 * dx;
-  ay -= muM_r3 * dy;
-  az -= muM_r3 * dz;
-
-  return ax, ay, az;  // retourné via objet ci-dessous
-}
 
 function derivatives(t, s) {
   const [x, y, z, vx, vy, vz] = s;
@@ -193,6 +173,7 @@ export function computeTrajectory() {
   // ════════════════════════════════════════════════════════
   // Phase 4 : TRAJET TRANSLUNAR (RK4 jusqu'à LOI)
   // ════════════════════════════════════════════════════════
+  let loiS, loiT; // état transmis à la phase LOI
   {
     let s = [tli_x, 0, tli_z, tli_vx, 0, tli_vz];
     let t = t_TLI;
@@ -202,20 +183,22 @@ export function computeTrajectory() {
       const dt = Math.min(DT, tEnd - t);
       s = rk4(t, s, dt);
       t += dt;
-      const ph = t >= T.MCC2 ? 'mcc2' : t >= T.MCC1 ? 'mcc1' : 'translunar_coast';
-      push(t, ...s, ph === 'translunar_coast' && t === t_TLI + DT ? 'translunar_coast' : null);
+      // Mise à jour de la phase à chaque point — la fonction push
+      // ne change currentPhase que si phase != null.
+      const ph = t >= T.MCC2 ? 'mcc2'
+               : t >= T.MCC1 ? 'mcc1'
+               : 'translunar_coast';
+      push(t, ...s, ph);
     }
-    // Stocker l'état à l'arrivée
-    Object.assign(window.__loiState = {}, { t, s });
-    window.__loiState.t = t;
-    window.__loiState.s = s;
+    // Transmettre l'état final à la phase suivante via variable locale
+    loiS = s;
+    loiT = t;
   }
 
   // ════════════════════════════════════════════════════════
   // Phase 5 : INSERTION EN ORBITE LUNAIRE (LOI) — impulsion
   // ════════════════════════════════════════════════════════
-  let loiState = window.__loiState;
-  let [lx, ly, lz, lvx, lvy, lvz] = loiState.s;
+  let [lx, ly, lz, lvx, lvy, lvz] = loiS;
   {
     // Vecteur radial Moon→spacecraft
     const [mx,,mz] = moonPosition(T.LOI_CUTOFF);
@@ -226,7 +209,7 @@ export function computeTrajectory() {
     const vcur = Math.sqrt(lvx*lvx + lvy*lvy + lvz*lvz);
     const scale = V_LO_CIRC * 0.6 / vcur; // freinage LOI
     lvx *= scale; lvy *= scale; lvz *= scale;
-    window.__loiState.s = [lx, ly, lz, lvx, lvy, lvz];
+    loiS = [lx, ly, lz, lvx, lvy, lvz];
   }
 
   // ════════════════════════════════════════════════════════
@@ -319,8 +302,7 @@ export function computeTrajectory() {
     }
   }
 
-  // Nettoyer l'état temporaire
-  delete window.__loiState;
+
 
   console.log(`[Trajectory] ${points.length} points calculés (${(points.length * DT / 86400).toFixed(1)} jours)`);
   return points;
