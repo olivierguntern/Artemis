@@ -1,0 +1,512 @@
+/* ============================================================
+   ARTEMIS III MISSION SIMULATOR — Dark NASA Theme
+   ============================================================ */
+
+/* ── Reset & base ─────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #c8d8e8;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  user-select: none;
+}
+
+/* ── Canvas ───────────────────────────────────────────────── */
+#canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  z-index: 0;
+}
+
+/* ── Loading screen ───────────────────────────────────────── */
+#loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000010;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  transition: opacity 0.8s ease;
+}
+
+#loading-screen.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2rem;
+  text-align: center;
+}
+
+.nasa-logo {
+  font-size: 4rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  color: #fc3d21;
+  text-shadow:
+    0 0 20px rgba(252, 61, 33, 0.8),
+    0 0 40px rgba(252, 61, 33, 0.4);
+  font-family: 'Arial Black', Arial, sans-serif;
+}
+
+.loading-content h1 {
+  font-size: 2rem;
+  letter-spacing: 0.3em;
+  color: #e8f4ff;
+  font-family: 'Arial Black', Arial, sans-serif;
+  text-shadow: 0 0 15px rgba(100, 180, 255, 0.6);
+}
+
+.loading-content p {
+  color: #8aaccc;
+  letter-spacing: 0.08em;
+  font-size: 0.9rem;
+}
+
+.loading-bar {
+  width: 320px;
+  height: 4px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  border: 1px solid rgba(100, 160, 255, 0.3);
+}
+
+#loading-progress {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #0b3d91, #4c9aff, #fc3d21);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(76, 154, 255, 0.8);
+}
+
+/* ── HUD global ───────────────────────────────────────────── */
+#hud {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* ── HUD top bar ─────────────────────────────────────────── */
+#hud-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  background: linear-gradient(180deg,
+    rgba(0, 8, 30, 0.92) 0%,
+    rgba(0, 8, 30, 0.7) 80%,
+    transparent 100%);
+  border-bottom: 1px solid rgba(11, 61, 145, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+#mission-title {
+  font-family: 'Arial Black', Arial, sans-serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.2em;
+  color: #4c9aff;
+  text-shadow: 0 0 8px rgba(76, 154, 255, 0.5);
+}
+
+#met {
+  font-size: 1.4rem;
+  font-weight: bold;
+  letter-spacing: 0.12em;
+  color: #e8f8e8;
+  font-family: 'Courier New', monospace;
+  text-shadow:
+    0 0 10px rgba(100, 255, 100, 0.5),
+    0 0 20px rgba(100, 255, 100, 0.2);
+}
+
+#phase-name {
+  font-size: 0.8rem;
+  letter-spacing: 0.15em;
+  color: #fc9d21;
+  font-family: 'Arial', sans-serif;
+  font-weight: bold;
+  text-transform: uppercase;
+  text-shadow: 0 0 8px rgba(252, 157, 33, 0.5);
+  max-width: 280px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Panel base (glassmorphism) ──────────────────────────── */
+.panel {
+  background: rgba(0, 6, 22, 0.82);
+  border: 1px solid rgba(11, 61, 145, 0.55);
+  border-radius: 4px;
+  padding: 0.9rem 1rem;
+  backdrop-filter: blur(8px);
+  box-shadow:
+    0 0 0 1px rgba(76, 154, 255, 0.08),
+    0 4px 24px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(76, 154, 255, 0.1);
+  pointer-events: auto;
+}
+
+.panel-title {
+  font-size: 0.65rem;
+  letter-spacing: 0.25em;
+  color: #4c9aff;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(11, 61, 145, 0.5);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+/* ── Left panel : telemetry ──────────────────────────────── */
+#hud-left {
+  position: absolute;
+  top: 68px;
+  left: 1rem;
+  width: 220px;
+}
+
+.telem-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.telem-row:last-child {
+  border-bottom: none;
+}
+
+.label {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  color: #7090b0;
+  text-transform: uppercase;
+}
+
+.value {
+  font-size: 0.85rem;
+  color: #a8e8ff;
+  font-weight: bold;
+  font-family: 'Courier New', monospace;
+  text-align: right;
+}
+
+/* ── Fuel bar ────────────────────────────────────────────── */
+#fuel-bar-container {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.12);
+  margin-bottom: 0.3rem;
+}
+
+#fuel-bar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #1a8a1a, #4cff4c, #a0ff60);
+  border-radius: 4px;
+  transition: width 0.5s ease, background 0.5s ease;
+  box-shadow: 0 0 6px rgba(76, 255, 76, 0.5);
+}
+
+#fuel-bar.fuel-low {
+  background: linear-gradient(90deg, #8a1a1a, #ff4c4c);
+  box-shadow: 0 0 6px rgba(255, 76, 76, 0.5);
+}
+
+#fuel-percent {
+  font-size: 0.72rem;
+  color: #7aaa7a;
+  text-align: right;
+  font-family: 'Courier New', monospace;
+}
+
+/* ── Right panel : status ────────────────────────────────── */
+#hud-right {
+  position: absolute;
+  top: 68px;
+  right: 1rem;
+  width: 190px;
+  text-align: center;
+}
+
+#spacecraft-config {
+  font-size: 0.82rem;
+  color: #e8d080;
+  letter-spacing: 0.08em;
+  padding: 0.3rem 0;
+  text-transform: uppercase;
+}
+
+#camera-mode {
+  font-size: 0.78rem;
+  color: #80c8e8;
+  letter-spacing: 0.06em;
+  padding: 0.3rem 0;
+  text-transform: uppercase;
+}
+
+#time-scale {
+  font-size: 1.4rem;
+  color: #fc9d21;
+  font-weight: bold;
+  font-family: 'Courier New', monospace;
+  text-shadow: 0 0 8px rgba(252, 157, 33, 0.4);
+  padding: 0.2rem 0;
+}
+
+/* ── Bottom controls bar ─────────────────────────────────── */
+#hud-bottom {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.6rem 1.5rem;
+  background: linear-gradient(0deg,
+    rgba(0, 8, 30, 0.92) 0%,
+    rgba(0, 8, 30, 0.7) 80%,
+    transparent 100%);
+  border-top: 1px solid rgba(11, 61, 145, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  pointer-events: auto;
+}
+
+#controls-hint {
+  display: flex;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+}
+
+#controls-hint span {
+  font-size: 0.68rem;
+  color: #5a7a9a;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+#controls-hint span::before {
+  color: #4c9aff;
+}
+
+/* ── Phase buttons ───────────────────────────────────────── */
+#phase-buttons {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.phase-btn {
+  background: rgba(11, 61, 145, 0.35);
+  border: 1px solid rgba(76, 154, 255, 0.4);
+  color: #8ab8d8;
+  font-family: 'Courier New', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  padding: 0.3rem 0.6rem;
+  border-radius: 3px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.phase-btn:hover {
+  background: rgba(11, 61, 145, 0.7);
+  border-color: rgba(76, 154, 255, 0.8);
+  color: #d0e8ff;
+  box-shadow: 0 0 8px rgba(76, 154, 255, 0.3);
+}
+
+.phase-btn.active {
+  background: rgba(11, 61, 145, 0.8);
+  border-color: #4c9aff;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(76, 154, 255, 0.5);
+}
+
+/* ── Phase tooltip ───────────────────────────────────────── */
+#phase-tooltip {
+  position: fixed;
+  background: rgba(0, 6, 22, 0.95);
+  border: 1px solid rgba(76, 154, 255, 0.5);
+  border-radius: 4px;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.75rem;
+  color: #c8e0f0;
+  pointer-events: none;
+  z-index: 20;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  max-width: 240px;
+  line-height: 1.5;
+}
+
+#phase-tooltip.hidden {
+  display: none;
+}
+
+/* ── Pause overlay ───────────────────────────────────────── */
+#pause-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 6, 22, 0.85);
+  border: 1px solid rgba(252, 61, 33, 0.5);
+  border-radius: 6px;
+  padding: 1rem 2rem;
+  font-size: 1.2rem;
+  letter-spacing: 0.3em;
+  color: #fc3d21;
+  text-shadow: 0 0 10px rgba(252, 61, 33, 0.5);
+  backdrop-filter: blur(8px);
+  z-index: 15;
+  display: none;
+  pointer-events: none;
+}
+
+#pause-overlay.visible {
+  display: block;
+}
+
+/* ── HUD corner decorations ──────────────────────────────── */
+.corner-deco {
+  position: fixed;
+  width: 24px;
+  height: 24px;
+  z-index: 11;
+  pointer-events: none;
+}
+
+.corner-deco.tl {
+  top: 58px;
+  left: 8px;
+  border-top: 2px solid rgba(76, 154, 255, 0.4);
+  border-left: 2px solid rgba(76, 154, 255, 0.4);
+}
+
+.corner-deco.tr {
+  top: 58px;
+  right: 8px;
+  border-top: 2px solid rgba(76, 154, 255, 0.4);
+  border-right: 2px solid rgba(76, 154, 255, 0.4);
+}
+
+/* ── Scrollbar (in panels if needed) ────────────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(76, 154, 255, 0.4);
+  border-radius: 2px;
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 768px) {
+  #hud-left { width: 180px; font-size: 0.75rem; }
+  #hud-right { width: 160px; font-size: 0.75rem; }
+  #mission-title { display: none; }
+  #met { font-size: 1rem; }
+  #controls-hint { display: none; }
+  .phase-btn { font-size: 0.55rem; padding: 0.25rem 0.4rem; }
+}
+
+@media (max-width: 480px) {
+  #hud-left { display: none; }
+  #hud-right { width: 140px; }
+}
+
+/* ── Styles complémentaires ──────────────────────────────── */
+.loading-bar-outer {
+  width: 300px;
+  height: 4px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 1rem auto 0.5rem;
+}
+
+.loading-sub {
+  font-size: 0.65rem;
+  color: #506070;
+  letter-spacing: 0.08em;
+  margin-top: 0.5rem;
+}
+
+/* Valeur état système (panneau droit) */
+.sys-value {
+  font-size: 0.8rem;
+  color: #a8e8ff;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.2rem;
+  line-height: 1.3;
+}
+.sys-value.accent {
+  color: #ffd54f;
+  font-size: 1.1rem;
+}
+
+/* Boutons vitesse du temps */
+.ts-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+.ts-buttons button {
+  background: rgba(11, 61, 145, 0.4);
+  border: 1px solid rgba(76, 154, 255, 0.3);
+  color: #a8d4ff;
+  font-family: 'Courier New', monospace;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ts-buttons button:hover {
+  background: rgba(11, 61, 145, 0.8);
+  color: #ffffff;
+}
